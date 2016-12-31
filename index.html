@@ -17,15 +17,18 @@
         */}).toString().match(/\n([\s\S]*)\n/)[1];
 
         window.onload = function () {
-            sound = new GLSLSound(5.0); // 5.0[sec] sound
+            sound = new GLSLSound();
             sound.setGain(0.5);
             var cr = sound.compleShader(soundShader);
             if (!cr) {
                 var msg = document.createTextNode('Compile failed:' + sound.getError());
                 document.body.appendChild(msg);
             } else { 
-                sound.prepare();
-                
+                sound.prepare(3.0); // 3.0[sec] sound
+                sound.setEndCallback(function () {
+                    console.log('play end');
+                });
+
                 var button = document.createElement('button');
                 document.body.appendChild(button);
                 button.innerHTML = "play GLSL";

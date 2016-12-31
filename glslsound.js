@@ -8,48 +8,48 @@ var vsshader = (function () {
 })(),
     fsHeader = (function () {
     return "precision highp float;\n"+
-        "uniform float timeOffset;\n"+
-        "uniform float sampleRate;\n"+
-        "uniform float bufferWidth;\n"+
+        "uniform float gsTimeOffset;\n"+
+        "uniform float gsSampleRate;\n"+
+        "uniform float gsBufferWidth;\n"+
         "#line 1\n";
 })(),
     fsFooter = (function () {
     return "void main() {\n"+
-    "    float t = timeOffset + ((gl_FragCoord.x - 0.5) + (gl_FragCoord.y - 0.5) * bufferWidth) / sampleRate;\n"+
+    "    float t = gsTimeOffset + ((gl_FragCoord.x - 0.5) + (gl_FragCoord.y - 0.5) * gsBufferWidth) / gsSampleRate;\n"+
     "    vec2  s = mainSound(t);\n"+
-    "    vec2  w = floor((0.5 + 0.5 * s) * 65535.0);\n"+
-    "    vec2 wL =   mod(w,  256.0)  / 255.0;\n"+
+    "    vec2  w = floor((0.5 + 0.5 * s) * 65536.0);\n"+
+    "    vec2 wL =   mod(w,  256.0) / 255.0;\n"+
     "    vec2 wH = floor(w / 256.0) / 255.0;\n"+
     "    gl_FragColor = vec4(wL.x, wH.x, wL.y, wH.y);\n"+
     "}\n";
 })();
     
 
-function GLSLSound(bufferTimeSec) {
-    this.initSound(bufferTimeSec);
+function GLSLSound() {
+    this.initSound();
     this.initGL();
+    this.initUniforms();
 }
 
-GLSLSound.prototype.initSound = function (bufferTimeSec) {
+//---------------------------------------------------------------------------------
+
+GLSLSound.prototype.initSound = function () {
     var AudioContext = (window.AudioContext || window.webkitAudioContext);
     if (!AudioContext) {
         alert("Don't support WebAudio");
         return null;
     }
-    this.m_context = new AudioContext();
-    this.m_sampleRate = 44100;
-    this.m_playTime = bufferTimeSec;
-    this.m_playSamples = this.m_playTime * this.m_sampleRate;
-    this.m_buffer = this.m_context.createBuffer(2, this.m_playSamples, this.m_sampleRate );    
+    this.m_context = new AudioContext();   
     this.m_gainNode = this.m_context.createGain();
     this.m_gainNode.connect(this.m_context.destination);
     this.m_playNode = null;
+    this.m_endCallback = null;
 }
 
 GLSLSound.prototype.initGL = function () {
     var c = document.createElement('canvas');
-    c.width  = 256;
-    c.height = 256;
+    c.width  = 512;
+    c.height = 512;
     this.m_drawWidth  = c.width;
     this.m_drawHeight = c.height;
     
@@ -72,6 +72,8 @@ GLSLSound.prototype.initGL = function () {
     gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([1,1,1,-3,-3,1]), gl.STATIC_DRAW);
 }
+
+//---------------------------------------------------------------------------------
 
 GLSLSound.prototype.compleShader = function (soundShader) {
     this.m_error = "";
@@ -99,6 +101,8 @@ GLSLSound.prototype.getError = function () {
     return this.m_error;
 }
 
+//---------------------------------------------------------------------------------
+
 GLSLSound.prototype.getGain = function () {
     return this.m_gainNode.gain.value;
 }
@@ -107,60 +111,142 @@ GLSLSound.prototype.setGain = function (gain) {
     this.m_gainNode.gain.value = gain;
 }
 
-GLSLSound.prototype.drawQuad = function (offset) {
-    var g = this.gl;
-    g.useProgram(this.m_prg);
-	g.uniform1f(g.getUniformLocation(this.m_prg, "timeOffset"), offset);
-    g.uniform1f(g.getUniformLocation(this.m_prg, "sampleRate"), this.m_sampleRate);
-    g.uniform1f(g.getUniformLocation(this.m_prg, "bufferWidth"), this.m_drawWidth);
+//---------------------------------------------------------------------------------
+
+GLSLSound.prototype.initUniforms = function () {
+    this.m_uniforms = {};
+}
+GLSLSound.prototype.setUniform1f = function (uniformName, value) {
+    this.m_uniforms[uniformName] = [value];
+}
+GLSLSound.prototype.setUniform2f = function (uniformName, x, y) {
+    this.m_uniforms[uniformName] = [x, y];
+}
+GLSLSound.prototype.setUniform3f = function (uniformName, x, y, z) {
+    this.m_uniforms[uniformName] = [x, y, z];
+}
+GLSLSound.prototype.setUniform4f = function (uniformName, x, y, z, w) {
+    this.m_uniforms[uniformName] = [x, y, z, w];
+}
+GLSLSound.prototype.setUniform = function (uniformName, arrayValue) {
+    this.m_uniforms[uniformName] = arrayValue;
+}
+GLSLSound.prototype.getUniform = function (uniformName) {
+    return this.m_uniforms[uniformName];
+}
+
+//---------------------------------------------------------------------------------
+
+function setUniforms(g, prg, uniforms) {
+    var u, loc, len, args, val,
+        ufuncs = [null, g.uniform1f, g.uniform2f, g.uniform3f, g.uniform4f];
+    for (u in uniforms) {
+        if (uniforms.hasOwnProperty(u)) {
+            loc = g.getUniformLocation(prg, u);
+            if (loc) {
+                val = uniforms[u];
+                len = val.length;
+                args = [loc];
+                args = args.concat(val);
+                ufuncs[len].apply(g, args);
+            }
+        }
+    }
+}
+
+function drawQuad(glslSound, offset,) {
+    var u,
+        loc,
+        val,
+        g = glslSound.gl,
+        prg = glslSound.m_prg;
+    g.useProgram(prg);
+
+    // set user uniforms
+    setUniforms(g, prg, glslSound.m_uniforms);
+
+    // set system uniforms
+	g.uniform1f(g.getUniformLocation(prg, "gsTimeOffset"), offset);
+    g.uniform1f(g.getUniformLocation(prg, "gsSampleRate"), glslSound.m_sampleRate);
+    g.uniform1f(g.getUniformLocation(prg, "gsBufferWidth"), glslSound.m_drawWidth);
+
+    // draw
 	g.enableVertexAttribArray(0);
 	g.vertexAttribPointer(0, 2, g.FLOAT, false, 0, 0);
 	g.drawArrays(g.TRIANGLES, 0, 3);
 }
 
 
-GLSLSound.prototype.prepare = function () {
-    if (!this.gl || !this.m_context) {
+GLSLSound.prototype.prepare = function (playTimeSec, playOffsetTimeSec = 0.0) {
+    if (!this.gl || !this.m_context || !playTimeSec) {
         return false;
     }
+
+    this.m_sampleRate = 44100;
+    this.m_playTime = playTimeSec;
+    this.m_playSamples = this.m_playTime * this.m_sampleRate;
+    this.m_buffer = this.m_context.createBuffer(2, this.m_playSamples, this.m_sampleRate );
+     
     var i,
         j,
         numSamples = this.m_bufferSamples,
         bufL = this.m_buffer.getChannelData(0),
         bufR = this.m_buffer.getChannelData(1),
         numBlocks = this.m_playSamples / numSamples;
-    for ( i = 0; i < numBlocks; ++i )
+    for (i = 0; i < numBlocks; ++i )
     {
         var offset = i * numSamples;
         
         // make GLSL sound
-        this.drawQuad(offset, numSamples);
+        drawQuad(this, offset / this.m_sampleRate + playOffsetTimeSec);
 
         // get sound from GPU
         this.gl.readPixels(0, 0, this.m_drawWidth, this.m_drawHeight, this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.m_wavedata);
         //console.log(this.m_wavedata);
 
-        for ( j = 0; j < numSamples; ++j )
+        for (j = 0; j < numSamples; ++j )
         {
-            bufL[offset+j] = -1.0 + 2.0 * (this.m_wavedata[4 * j + 0] + 256.0 * this.m_wavedata[4 * j + 1]) / 65535.0;
-            bufR[offset+j] = -1.0 + 2.0 * (this.m_wavedata[4 * j + 2] + 256.0 * this.m_wavedata[4 * j + 3]) / 65535.0;
+            bufL[offset + j] = -1.0 + 2.0 * (this.m_wavedata[4 * j + 0] + 256.0 * this.m_wavedata[4 * j + 1]) / 65535.0;
+            bufR[offset + j] = -1.0 + 2.0 * (this.m_wavedata[4 * j + 2] + 256.0 * this.m_wavedata[4 * j + 3]) / 65535.0;
         }
     }
     return true;
 }
 
-GLSLSound.prototype.play = function () {
+//---------------------------------------------------------------------------------
 
-    if ( this.m_playNode != null ) {
-        this.m_playNode.disconnect();
-        this.m_playNode.stop();
+GLSLSound.prototype.play = function (startOffsetSec = 0) {
+    if (!this.gl || !this.m_context) {
+        return false;
     }
 
+    this.stop();
+    
     this.m_playNode = this.m_context.createBufferSource();
+    this.m_playNode.onended = this.m_endCallback;
     this.m_playNode.buffer = this.m_buffer;
     this.m_playNode.connect(this.m_gainNode);
     this.m_playNode.state = this.m_playNode.noteOn;
-    this.m_playNode.start(0);
+    this.m_playNode.start(0, startOffsetSec);
+
+    return true;
+}
+
+GLSLSound.prototype.stop = function () {
+    if (!this.gl || !this.m_context) {
+        return false;
+    }
+
+    if (this.m_playNode != null) {
+        this.m_playNode.disconnect();
+        this.m_playNode.stop();
+        this.m_playNode = null;
+    }
+    return true;
+}
+
+GLSLSound.prototype.setEndCallback = function (func) {
+    this.m_endCallback = func;
 }
 
 window.GLSLSound = GLSLSound;
