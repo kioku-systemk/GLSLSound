@@ -19,7 +19,7 @@
         window.onload = function () {
             sound = new GLSLSound();
             sound.setGain(0.5);
-            var cr = sound.compleShader(soundShader);
+            var cr = sound.compileShader(soundShader);
             if (!cr) {
                 var msg = document.createTextNode('Compile failed:' + sound.getError());
                 document.body.appendChild(msg);

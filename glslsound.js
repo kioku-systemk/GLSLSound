@@ -75,7 +75,7 @@ GLSLSound.prototype.initGL = function () {
 
 //---------------------------------------------------------------------------------
 
-GLSLSound.prototype.compleShader = function (soundShader) {
+GLSLSound.prototype.compileShader = function (soundShader) {
     this.m_error = "";
     var g = this.gl;
     var fs = g.createShader(g.FRAGMENT_SHADER);
